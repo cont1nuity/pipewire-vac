@@ -73,4 +73,5 @@ target = "auto"
 # target = "Master"
 
 [features]
-self_heal = true   # false = reconcile once at login then idle (still holds the single-instance lock)
+self_heal = true      # false = reconcile once at login then idle (still holds the single-instance lock)
+check_updates = true  # AppImage only: on startup, check GitHub for a newer release and offer it in the tray

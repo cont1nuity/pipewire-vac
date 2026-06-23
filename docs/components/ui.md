@@ -13,10 +13,20 @@ the only runtime dependency — no Qt/GTK, so it works on any SNI host and keeps
 small). Two D-Bus objects: `Sni` at `/StatusNotifierItem` and `Menu` at `/MenuBar`; it registers
 with `org.kde.StatusNotifierWatcher`, then polls the daemon pid every ~2s and exits if it dies.
 
-**Menu:** *version (disabled) / Settings… / Edit config file / Start at login (checkbox) / Quit*.
-Left-click (`Activate`) opens Settings via `open_config_ui()` (launches [configui](#config-editor-configuipy);
-falls back to raw TOML if Tk is missing). "Start at login" toggles the XDG autostart entry;
-"Quit" stops the daemon.
+**Menu:** *version (disabled) / Settings… / Edit config file / Start at login (checkbox) /
+Check for updates automatically (checkbox) / Check for updates… / Quit*. Left-click (`Activate`)
+opens Settings via `open_config_ui()` (launches [configui](#config-editor-configuipy); falls back
+to raw TOML if Tk is missing). "Start at login" toggles the XDG autostart entry; "Quit" stops the
+daemon.
+
+**Updates (AppImage runs only):** the two update items appear only when `$APPIMAGE` is set. On
+startup — honoring `[features] check_updates` (toggled by the "automatically" checkbox; the tray
+rewrites that one config line Tk-free) — the tray HEAD-requests the GitHub `releases/latest`
+redirect, and if the tag parses newer than the running `--version` it relabels the item to
+*"Update available: X — install now"* and fires a libnotify notification. Clicking it hands off to
+`appimageupdatetool`/`AppImageUpdate` for an in-place delta update (the AppImage carries embedded
+update-information, see [packaging.md](packaging.md)), or opens the Releases page if that tool
+isn't installed. All best-effort: network/SSL failures and a missing notifier just no-op.
 
 **Icon:** the custom audio-routing graphic `packaging/pipewire-vac.png` is embedded as an
 `IconPixmap` — `_png_to_argb` decodes the PNG to ARGB with a tiny stdlib decoder (no Pillow, all

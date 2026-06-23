@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write   # gh release create
+
+jobs:
+  appimage:
+    runs-on: ubuntu-22.04   # pinned for reproducible AppImage builds (payload is self-contained)
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # tags, for the script's git-describe fallback
+      - name: Install build deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq librsvg2-bin curl zsync
+      - name: Build AppImage
+        run: bash packaging/build-appimage.sh "${GITHUB_REF_NAME#v}"
+      - name: Compose release notes from CHANGELOG.md
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          if section=$(bash packaging/changelog-section.sh "$ver"); then
+            { printf '%s\n\n' "$section"
+              printf -- '---\n📖 Full changelog: https://github.com/%s/blob/%s/CHANGELOG.md\n' \
+                "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME"
+            } > notes.md
+          else
+            echo "::warning::CHANGELOG.md has no [$ver] section — using a minimal note"
+            printf 'See [CHANGELOG.md](https://github.com/%s/blob/%s/CHANGELOG.md).\n' \
+              "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" > notes.md
+          fi
+      - name: Publish release (create or update — safe to re-tag)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$GITHUB_REF_NAME"
+          title="PipeWire VAC ${tag#v}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --title "$title" --notes-file notes.md
+            gh release upload "$tag" dist/PipeWire-VAC-*-x86_64.AppImage* --clobber
+          else
+            gh release create "$tag" dist/PipeWire-VAC-*-x86_64.AppImage* \
+              --title "$title" --notes-file notes.md
+          fi

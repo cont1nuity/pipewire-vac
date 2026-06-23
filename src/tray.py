@@ -7,17 +7,22 @@ w/ extension, ...). Spawned by daemon.py as a SEPARATE process; dies with the da
 dbus_next — the daemon runs fine trayless.
 
 Menu: version (disabled), Settings… (row-based editor), Edit config file (raw), Start at
-login (checkbox), Quit (stops the daemon). Left click opens Settings. The icon is a themed
-name (audio-headphones) — no asset shipped.
+login (checkbox), 'Check for updates automatically' + 'Check for updates…' (AppImage runs only
+— hands off to AppImageUpdate if present, else opens the Releases page), Quit (stops the
+daemon). Left click opens Settings. The icon is a themed name (audio-headphones) — no asset
+shipped.
 
 Usage (by daemon.py): tray.py --pid <daemon-pid> --config <path> --version <v>
 """
 import asyncio
 import os
+import re
+import shutil
 import signal
 import struct
 import subprocess
 import sys
+import urllib.request
 import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -26,13 +31,16 @@ from paths import ROOT, XDG_STATE
 
 APP_ID = paths.APP                       # internal id (config dir / lock / SNI) = "pipewire-vac"
 APP_NAME = "PipeWire VAC"
+RELEASES_URL = "https://github.com/cont1nuity/pipewire-vac/releases/latest"
 ITEM_PATH = "/StatusNotifierItem"
 MENU_PATH = "/MenuBar"
 WATCHER = "org.kde.StatusNotifierWatcher"
 ICON_NAME = "audio-headphones"          # default; main() upgrades to our installed icon
 VERSION = "dev"                          # set from --version (passed by the daemon)
 
-MI_INFO, MI_SETTINGS, MI_EDIT, MI_AUTOSTART, MI_SEP, MI_QUIT = 1, 2, 3, 4, 5, 6
+# menu item ids
+MI_INFO, MI_SETTINGS, MI_EDIT, MI_AUTOSTART, MI_AUTOUPD, MI_SEP, MI_UPDATE, MI_QUIT = \
+    1, 2, 3, 4, 5, 6, 7, 8
 
 
 def die_with_parent():
@@ -250,8 +258,92 @@ class Sni(ServiceInterface):
         return "Active"
 
 
+# ------------------------------------------------------- update check (AppImage only)
+
+def read_check_updates(cfgpath):
+    """[features] check_updates (default True). Best-effort — any parse problem falls back to True."""
+    if not cfgpath:
+        return True
+    try:
+        import tomllib as _t
+    except ModuleNotFoundError:
+        return True
+    try:
+        with open(cfgpath, "rb") as fh:
+            return bool(_t.load(fh).get("features", {}).get("check_updates", True))
+    except Exception:
+        return True
+
+
+def write_check_updates(cfgpath, value):
+    """Flip [features] check_updates in place, touching only that one line so comments/layout
+    survive. Creates the key — and the [features] table — if absent. (configui.py has the full
+    comment-preserving writer but pulls in Tk; the tray stays Tk-free, hence this.)"""
+    if not cfgpath:
+        return
+    val = "true" if value else "false"
+    try:
+        with open(cfgpath) as fh:
+            lines = fh.read().split("\n")
+    except Exception:
+        return
+    out, in_features, done = [], False, False
+    for ln in lines:
+        s = ln.strip()
+        if s.startswith("[") and s.endswith("]"):
+            if in_features and not done:            # leaving [features] without the key -> add it
+                out.append("check_updates = %s" % val)
+                done = True
+            in_features = (s == "[features]")
+        elif in_features and not done and re.match(r"check_updates\s*=", s):
+            indent = ln[:len(ln) - len(ln.lstrip())]
+            cmt = re.search(r"\s#.*$", ln)          # keep any trailing comment
+            out.append("%scheck_updates = %s%s" % (indent, val, cmt.group(0) if cmt else ""))
+            done = True
+            continue
+        out.append(ln)
+    if not done:
+        if not in_features:
+            out.append("[features]")
+        out.append("check_updates = %s" % val)
+    try:
+        with open(cfgpath, "w") as fh:
+            fh.write("\n".join(out))
+    except Exception:
+        pass
+
+
+def _ver_tuple(s):
+    """'v1.2.0' / '1.2.0' -> (1, 2, 0); None for non-release strings like 'dev' (never nagged)."""
+    m = re.match(r"v?(\d+(?:\.\d+)*)", s or "")
+    return tuple(int(x) for x in m.group(1).split(".")) if m else None
+
+
+def latest_release_version():
+    """Latest release tag WITHOUT the GitHub API (no token, no rate limit): a HEAD on
+    /releases/latest 302-redirects to /releases/tag/vX.Y.Z — read the tag off the final URL."""
+    req = urllib.request.Request(RELEASES_URL, method="HEAD", headers={"User-Agent": APP_ID})
+    with urllib.request.urlopen(req, timeout=6) as resp:
+        final = resp.geturl()
+    m = re.search(r"/tag/(v?[0-9][0-9.]*)", final)
+    return m.group(1) if m else None
+
+
+def notify(summary, body):
+    """Desktop notification via libnotify if present; skipped silently otherwise (the tray menu
+    still shows the update either way)."""
+    ns = shutil.which("notify-send")
+    if not ns:
+        return
+    try:
+        subprocess.Popen([ns, "-a", APP_NAME, summary, body], start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+
 class Menu(ServiceInterface):
-    """com.canonical.dbusmenu with a fixed 6-item menu."""
+    """com.canonical.dbusmenu menu ('Check for updates…' items appear only for AppImage runs)."""
 
     def __init__(self, cfgpath, daemon_pid, quit_ev):
         super().__init__("com.canonical.dbusmenu")
@@ -260,6 +352,8 @@ class Menu(ServiceInterface):
         self.daemon_pid = daemon_pid
         self.quit_ev = quit_ev
         self._cfgui = None                    # the running settings-editor process, if any
+        self.update_available = None          # latest version string, once a newer release is seen
+        self.check_updates = read_check_updates(self.cfgpath)
 
     # ---- menu model ----
 
@@ -277,15 +371,30 @@ class Menu(ServiceInterface):
             return {"label": Variant("s", "Start at login"),
                     "toggle-type": Variant("s", "checkmark"),
                     "toggle-state": Variant("i", 1 if autostart_enabled() else 0)}
+        if mid == MI_AUTOUPD:
+            return {"label": Variant("s", "Check for updates automatically"),
+                    "toggle-type": Variant("s", "checkmark"),
+                    "toggle-state": Variant("i", 1 if self.check_updates else 0)}
         if mid == MI_SEP:
             return {"type": Variant("s", "separator")}
+        if mid == MI_UPDATE:
+            lbl = ("Update available: %s — install now" % self.update_available
+                   if self.update_available else "Check for updates…")
+            return {"label": Variant("s", lbl)}
         if mid == MI_QUIT:
             return {"label": Variant("s", "Quit (stop routing)")}
         return {"children-display": Variant("s", "submenu")}        # root
 
     def _layout(self):
-        kids = [Variant("(ia{sv}av)", [mid, self._props(mid), []])
-                for mid in (MI_INFO, MI_SETTINGS, MI_EDIT, MI_AUTOSTART, MI_SEP, MI_QUIT)]
+        appimage = bool(os.environ.get("APPIMAGE"))   # update items only make sense for the AppImage
+        ids = [MI_INFO, MI_SETTINGS, MI_EDIT, MI_AUTOSTART]
+        if appimage:
+            ids.append(MI_AUTOUPD)
+        ids.append(MI_SEP)
+        if appimage:
+            ids.append(MI_UPDATE)
+        ids.append(MI_QUIT)
+        kids = [Variant("(ia{sv}av)", [mid, self._props(mid), []]) for mid in ids]
         return [0, self._props(0), kids]
 
     # ---- actions ----
@@ -325,15 +434,43 @@ class Menu(ServiceInterface):
             self.open_config()
         elif mid == MI_AUTOSTART:
             (autostart_disable if autostart_enabled() else autostart_enable)()
-            self.revision += 1
-            self.ItemsPropertiesUpdated()
-            self.LayoutUpdated()
+            self._refresh()
+        elif mid == MI_AUTOUPD:
+            self.check_updates = not self.check_updates
+            write_check_updates(self.cfgpath, self.check_updates)
+            self._refresh()
+        elif mid == MI_UPDATE:
+            self._check_updates()
         elif mid == MI_QUIT:
             try:
                 os.kill(self.daemon_pid, signal.SIGTERM)
             except Exception:
                 pass
             self.quit_ev.set()
+
+    def _refresh(self):
+        """Tell the host the menu changed (bump revision + re-emit) so labels/checkmarks repaint."""
+        self.revision += 1
+        self.ItemsPropertiesUpdated()
+        self.LayoutUpdated()
+
+    def _check_updates(self):
+        """AppImage only: hand off to AppImageUpdate for an in-place delta update if the tool is
+        installed, else open the Releases page. The AppImage carries embedded update-information
+        (baked by packaging/build-appimage.sh), so the updater needs only the AppImage path."""
+        appimage = os.environ.get("APPIMAGE")
+        tool = shutil.which("appimageupdatetool") or shutil.which("AppImageUpdate")
+        target = [tool, appimage] if (appimage and tool) else ["xdg-open", RELEASES_URL]
+        try:
+            subprocess.Popen(target, start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
+    def set_update_available(self, version):
+        """Called by the startup check when a newer release exists: relabel the update item."""
+        self.update_available = version
+        self._refresh()
 
     # ---- com.canonical.dbusmenu ----
 
@@ -359,7 +496,8 @@ class Menu(ServiceInterface):
 
     @method()
     def GetGroupProperties(self, ids: "ai", names: "as") -> "a(ia{sv})":
-        ids = ids or [0, MI_INFO, MI_SETTINGS, MI_EDIT, MI_AUTOSTART, MI_SEP, MI_QUIT]
+        ids = ids or [0, MI_INFO, MI_SETTINGS, MI_EDIT, MI_AUTOSTART, MI_AUTOUPD, MI_SEP,
+                      MI_UPDATE, MI_QUIT]
         return [[i, self._props(i)] for i in ids]
 
     @method()
@@ -388,7 +526,7 @@ class Menu(ServiceInterface):
 
     @dbus_signal()
     def ItemsPropertiesUpdated(self) -> "a(ia{sv})a(ias)":
-        return [[[MI_AUTOSTART, self._props(MI_AUTOSTART)]], []]
+        return [[[m, self._props(m)] for m in (MI_AUTOSTART, MI_AUTOUPD, MI_UPDATE)], []]
 
     @dbus_signal()
     def LayoutUpdated(self) -> "ui":
@@ -396,6 +534,20 @@ class Menu(ServiceInterface):
 
 
 # ----------------------------------------------------------------------- main
+
+async def _check_for_update(menu):
+    """One startup check, off the dbus loop: if the latest GitHub release is newer than the
+    running version, relabel the tray item and fire a desktop notification. Best-effort —
+    network/SSL failures just no-op (the manual 'Check for updates…' item still works)."""
+    try:
+        latest = await asyncio.to_thread(latest_release_version)
+    except Exception:
+        return
+    cur, new = _ver_tuple(VERSION), _ver_tuple(latest)
+    if new and cur and new > cur:
+        menu.set_update_available(latest)
+        notify(APP_NAME, "Update available: %s — open the tray to install" % latest)
+
 
 async def amain(daemon_pid, cfgpath):
     bus = await MessageBus().connect()
@@ -409,6 +561,8 @@ async def amain(daemon_pid, cfgpath):
     watcher = bus.get_proxy_object(WATCHER, "/StatusNotifierWatcher", intr) \
                  .get_interface("org.kde.StatusNotifierWatcher")
     await watcher.call_register_status_notifier_item(bus.unique_name)
+    if os.environ.get("APPIMAGE") and menu.check_updates:   # AppImage-only, honors the toggle
+        asyncio.create_task(_check_for_update(menu))
     while not quit_ev.is_set():
         try:
             os.kill(daemon_pid, 0)            # daemon gone -> tray goes too

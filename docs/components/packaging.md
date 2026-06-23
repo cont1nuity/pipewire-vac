@@ -45,4 +45,14 @@ A minimal bundle — **no** libusb, **no** fonts, **no** Pillow
 python-appimage bundle (the editor falls back to raw-TOML editing if absent). Build host needs
 `rsvg-convert` to pre-render the SVG → PNG at build time so the runtime doesn't.
 
+## Auto-update & releases
+
+`build-appimage.sh` packs the AppImage with embedded **update-information**
+(`gh-releases-zsync|cont1nuity|pipewire-vac|latest|PipeWire-VAC-*-x86_64.AppImage.zsync`) and, when
+`zsync` (apt) is on PATH, emits the matching `.zsync` next to the AppImage (appimagetool runs from
+`$DIST` so both land together). A tagged push (`v*`) runs `.github/workflows/release.yml`: it builds
+on `ubuntu-22.04`, composes release notes from the matching `CHANGELOG.md` section
+(`packaging/changelog-section.sh`), and creates/updates the GitHub release with the AppImage +
+`.zsync`. The tray then delta-updates in place via AppImageUpdate (see [ui.md](ui.md)).
+
 See also: [ui.md](ui.md), [daemon.md](daemon.md)

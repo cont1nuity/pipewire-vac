@@ -38,6 +38,9 @@ sink to build whatever bus layout you want.
 - **Tray + settings editor** — an optional `StatusNotifierItem` tray and a row-based config editor.
 - **Single AppImage** — bundles CPython + dbus-next + the app; the target host needs only the
   PipeWire CLI tools every PipeWire system already ships.
+- **Auto-update** — the AppImage checks GitHub for a newer release on startup and offers an
+  in-place delta update from the tray (via AppImageUpdate). Toggle it off in the tray or with
+  `[features] check_updates = false`.
 
 ## Requirements
 
@@ -68,6 +71,12 @@ packaging/build-appimage.sh             # → dist/PipeWire-VAC-<version>-x86_64
 
 Launch it once; use the tray's **"Start at login"** to add the XDG autostart entry. From then on the
 AppImage daemon owns your cables and spawns the tray at login.
+
+Releases ship with embedded update-information, so a running AppImage can update itself: the tray's
+**"Check for updates…"** hands off to [AppImageUpdate](https://github.com/AppImage/AppImageUpdate)
+(an in-place delta update) if installed, and the startup check notifies you when a newer release is
+out. Tagging `vX.Y.Z` triggers the GitHub Actions release workflow that builds and publishes the
+AppImage.
 
 ## Configuration
 

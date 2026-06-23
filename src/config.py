@@ -9,7 +9,7 @@ DEFAULTS = {
     "config_version": 2,
     "cable": [],
     "app": [],
-    "features": {"self_heal": True},
+    "features": {"self_heal": True, "check_updates": True},
 }
 _CABLE_DEFAULTS = {"channels": "stereo", "target": "auto", "sources": []}
 

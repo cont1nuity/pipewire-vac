@@ -35,8 +35,10 @@ changes, revise its doc as a full revision in the same commit.
   catch-all. → [`app-routing.md`](docs/components/app-routing.md).
 - **UI** — a `StatusNotifierItem` tray (dbus-next) + a row-based Tk config editor, both optional
   processes the daemon spawns. → [`ui.md`](docs/components/ui.md).
-- **Packaging** — a single AppImage (relocatable CPython + dbus-next + Tcl/Tk + `src/`),
-  `VERSION` stamped at build. → [`packaging.md`](docs/components/packaging.md).
+- **Packaging & releases** — a single AppImage (relocatable CPython + dbus-next + Tcl/Tk +
+  `src/`), `VERSION` stamped at build; a tagged push (`v*`) builds + publishes a GitHub release
+  (AppImage + `.zsync`) and the AppImage auto-updates in place from the tray. →
+  [`packaging.md`](docs/components/packaging.md).
 
 `qpwgraph` and a `daemonctl.py` restart layer were **dropped** — the daemon re-reads config
 every poll, so no restart is needed.

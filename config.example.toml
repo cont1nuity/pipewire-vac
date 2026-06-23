@@ -1,0 +1,76 @@
+# PipeWire VAC configuration. Copy to config.toml (dev) or it seeds at
+# ~/.config/pipewire-vac/config.toml on first run.
+config_version = 2
+
+# Each [[cable]] is a virtual audio cable (a null sink apps can play into).
+#   name     — shown in pavucontrol; apps target this. Editable; "Master" is just a convention.
+#   channels — mono | stereo | 2.1 | 5.1 | 7.1
+#   target   — where this cable's output goes: another cable's name, a physical output sink
+#              name, or "auto" (first physical output). Links connect only the channels both
+#              ends share (no downmix). Empty ("") = no output — a capture-only virtual mic, or a
+#              record/stream bus other cables route into (a sourced cable with no target → "").
+#   sources  — optional list of hardware capture devices (your mic) to wire INTO this cable.
+#              The cable's monitor then doubles as a virtual mic apps can select — one mic to
+#              many apps, hardware default untouched. Use "auto" for the first physical mic, or a
+#              node name from `pactl list short sources` (the settings UI picks one by its
+#              friendly label). The mic's channel layout is detected live: a stereo mic links
+#              channel-for-channel; a single-port mono mic fans out to front L/R on a stereo+ cable.
+#
+# The app manages ONLY this structure. It never sets volume, the system default sink/source, or
+# your mic's gain/mute — it just links ports. WirePlumber and pavucontrol own the rest.
+
+[[cable]]
+name = "Game"
+channels = "stereo"
+target = "Master"
+
+[[cable]]
+name = "Voice"
+channels = "stereo"
+target = "Master"
+
+[[cable]]
+name = "Media"
+channels = "stereo"
+target = "Master"
+
+[[cable]]
+name = "Master"
+channels = "stereo"
+target = "auto"
+
+# Optional: a virtual mic. Apps select "VoiceMix" as their input. Source is your mic ("auto" =
+# first physical, or a name from `pactl list short sources`); a mono mic fans out to stereo.
+# No target = capture-only (no echo to speakers); set target to ALSO send it to an output.
+# In the settings UI this is the "Microphones" section, picking the mic by its friendly label.
+# [[cable]]
+# name = "VoiceMix"
+# channels = "stereo"
+# sources = ["auto"]
+
+# Optional: auto-assign an app's audio to a cable. On each fresh appearance of a matching
+# stream it's moved to `target` ONCE, then your manual moves (pavucontrol) stick. Restarting
+# the app routes it once again. Editing a rule's target re-applies it to the running stream.
+#   match  — alias (browser | game | media | voice), part of the app's name/binary with "a|b"
+#            alternatives (e.g. "discord|mumble"), or "default" to catch every unmatched
+#            stream. First matching [[app]] wins; "default" is the fallback wherever it sits.
+#   target — a cable name or any physical sink name.
+# Uncomment to enable:
+# [[app]]
+# match = "media"
+# target = "Media"
+#
+# [[app]]
+# match = "voice"
+# target = "Voice"
+#
+# [[app]]
+# match = "game"
+# target = "Game"
+#
+# [[app]]
+# match = "default"   # everything else
+# target = "Master"
+
+[features]
+self_heal = true   # false = reconcile once at login then idle (still holds the single-instance lock)

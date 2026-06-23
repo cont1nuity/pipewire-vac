@@ -1,0 +1,13 @@
+Client #45
+	Driver: PipeWire
+	Owner Module: 7
+	Properties:
+		application.name = "Firefox"
+		application.process.binary = "firefox"
+
+Client #90
+	Driver: PipeWire
+	Owner Module: 7
+	Properties:
+		application.name = "spotify"
+		application.process.binary = "spotify"

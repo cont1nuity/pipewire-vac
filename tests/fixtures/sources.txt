@@ -1,0 +1,6 @@
+58	alsa_output.pci-0000_6c_00.6.analog-stereo.monitor	PipeWire	s32le 2ch 48000Hz	RUNNING
+59	alsa_input.pci-0000_6c_00.6.analog-stereo	PipeWire	s32le 2ch 48000Hz	RUNNING
+76	Master.monitor	PipeWire	float32le 2ch 48000Hz	RUNNING
+83	Game.monitor	PipeWire	float32le 2ch 48000Hz	IDLE
+86	Voice.monitor	PipeWire	float32le 2ch 48000Hz	RUNNING
+93	Media.monitor	PipeWire	float32le 2ch 48000Hz	RUNNING

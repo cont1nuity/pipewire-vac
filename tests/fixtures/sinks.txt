@@ -1,0 +1,5 @@
+58	alsa_output.pci-0000_6c_00.6.analog-stereo	PipeWire	s32le 2ch 48000Hz	RUNNING
+76	Master	PipeWire	float32le 2ch 48000Hz	RUNNING
+83	Game	PipeWire	float32le 2ch 48000Hz	IDLE
+86	Voice	PipeWire	float32le 2ch 48000Hz	RUNNING
+93	Media	PipeWire	float32le 2ch 48000Hz	RUNNING

@@ -1,0 +1,21 @@
+Sink Input #123
+	Driver: PipeWire
+	Owner Module: n/a
+	Client: 45
+	Sink: 58
+	Mute: no
+	Properties:
+		application.name = "Firefox"
+		application.process.binary = "firefox"
+		media.name = "AudioStream"
+		node.name = "Firefox"
+
+Sink Input #200
+	Driver: PipeWire
+	Owner Module: n/a
+	Client: 90
+	Sink: 58
+	Mute: no
+	Properties:
+		media.name = "audio-src"
+		node.name = "spotify"

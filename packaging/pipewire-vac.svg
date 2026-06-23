@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="256" height="256">
+  <!-- audio routing: three sources patched into a speaker output -->
+  <g fill="none" stroke="#2b8cff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M13 15 C28 15 26 32 39 32"/>
+    <path d="M13 32 H39"/>
+    <path d="M13 49 C28 49 26 32 39 32"/>
+  </g>
+  <g fill="#2b8cff">
+    <circle cx="13" cy="15" r="5"/>
+    <circle cx="13" cy="32" r="5"/>
+    <circle cx="13" cy="49" r="5"/>
+    <path d="M38 26 h5 l8 -7 v26 l-8 -7 h-5 z"/>
+  </g>
+  <path d="M56 25 q6 7 0 14" fill="none" stroke="#2b8cff" stroke-width="3.5" stroke-linecap="round"/>
+</svg>

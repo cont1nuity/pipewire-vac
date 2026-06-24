@@ -42,6 +42,17 @@ def test_reconcile_once_unmute_only_first_time(tmp_path, monkeypatch):
     assert any(a[0] == "create_sink" for a in recorded)
     assert not any(a[0] == "unmute" for a in recorded)  # respect prior init across recreation
 
+def test_reconcile_once_skips_on_failed_read(tmp_path, monkeypatch):
+    # pactl wedged/timed out (snapshot ok=False): a blind read makes every cable look missing.
+    # Re-creating on it is what leaked duplicate null-sinks and wedged the whole audio stack.
+    monkeypatch.setattr(state.paths, "XDG_STATE", str(tmp_path))
+    monkeypatch.setattr(main.pwgraph, "snapshot", lambda our: {"sinks": set(), "ok": False})
+    recorded = []
+    monkeypatch.setattr(main.routing, "apply", lambda acts, pw: recorded.extend(acts))
+    summary = main.reconcile_once(_cfg())
+    assert recorded == []                                # NOTHING applied — no create_sink storm
+    assert summary == {"cables": 0, "created": 0, "removed": 0}
+
 def test_reconcile_once_never_unmutes_a_preexisting_cable(tmp_path, monkeypatch):
     monkeypatch.setattr(state.paths, "XDG_STATE", str(tmp_path))
     # both cables already exist (e.g. the old bash script made them) and the ledger is empty

@@ -39,8 +39,8 @@ ICON_NAME = "audio-headphones"          # default; main() upgrades to our instal
 VERSION = "dev"                          # set from --version (passed by the daemon)
 
 # menu item ids
-MI_INFO, MI_SETTINGS, MI_EDIT, MI_AUTOSTART, MI_AUTOUPD, MI_SEP, MI_UPDATE, MI_QUIT = \
-    1, 2, 3, 4, 5, 6, 7, 8
+MI_INFO, MI_SETTINGS, MI_EDIT, MI_AUTOSTART, MI_AUTOUPD, MI_SEP, MI_UPDATE, MI_RESTART, MI_QUIT = \
+    1, 2, 3, 4, 5, 6, 7, 8, 9
 
 
 def die_with_parent():
@@ -377,6 +377,8 @@ class Menu(ServiceInterface):
                     "toggle-state": Variant("i", 1 if self.check_updates else 0)}
         if mid == MI_SEP:
             return {"type": Variant("s", "separator")}
+        if mid == MI_RESTART:
+            return {"label": Variant("s", "Restart audio (PipeWire)")}
         if mid == MI_UPDATE:
             lbl = ("Update available: %s — install now" % self.update_available
                    if self.update_available else "Check for updates…")
@@ -393,6 +395,7 @@ class Menu(ServiceInterface):
         ids.append(MI_SEP)
         if appimage:
             ids.append(MI_UPDATE)
+        ids.append(MI_RESTART)
         ids.append(MI_QUIT)
         kids = [Variant("(ia{sv}av)", [mid, self._props(mid), []]) for mid in ids]
         return [0, self._props(0), kids]
@@ -427,6 +430,17 @@ class Menu(ServiceInterface):
                 pass
         self.open_config()                          # fallback: xdg-open the raw TOML
 
+    def restart_audio(self):
+        """Recovery shortcut: bounce the user audio stack. The daemon's poll re-creates our
+        cables within POLL seconds, so routing heals itself afterward — nothing to do here."""
+        try:
+            subprocess.Popen(["systemctl", "--user", "restart",
+                              "pipewire", "pipewire-pulse", "wireplumber"],
+                             start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
     def _clicked(self, mid):
         if mid == MI_SETTINGS:
             self.open_config_ui()
@@ -441,6 +455,8 @@ class Menu(ServiceInterface):
             self._refresh()
         elif mid == MI_UPDATE:
             self._check_updates()
+        elif mid == MI_RESTART:
+            self.restart_audio()
         elif mid == MI_QUIT:
             try:
                 os.kill(self.daemon_pid, signal.SIGTERM)
@@ -497,7 +513,7 @@ class Menu(ServiceInterface):
     @method()
     def GetGroupProperties(self, ids: "ai", names: "as") -> "a(ia{sv})":
         ids = ids or [0, MI_INFO, MI_SETTINGS, MI_EDIT, MI_AUTOSTART, MI_AUTOUPD, MI_SEP,
-                      MI_UPDATE, MI_QUIT]
+                      MI_UPDATE, MI_RESTART, MI_QUIT]
         return [[i, self._props(i)] for i in ids]
 
     @method()

@@ -31,6 +31,13 @@ for a target / a `sources` entry; prefer `alsa_output.`/`alsa_input.` etc., excl
 `.monitor`), `snapshot(our)`, `source_ports(names)` (one `pw-link -o` → each capture source's
 live port suffixes, for virtual-mic links), and `sink_labels(our)` / `source_labels()` (friendly
 device descriptions for the settings UI dropdowns).
+`snapshot(our)` returns `{"sinks", "ok"}` — `ok` is false when the `pactl` sink listing failed
+(non-zero exit or timeout). That flag is load-bearing: an empty/failed listing makes every cable
+look missing, and creating on it re-loads a duplicate `module-null-sink` each poll — leaked
+modules that bloat the graph until the whole audio server wedges (the modules live in
+pipewire-pulse, so only a `systemctl restart` clears them). `run()` therefore wraps every call
+with a **5 s timeout**, returning rc=124 on a hang so a wedged `pactl`/`pw-link` is treated as a
+failed read rather than freezing the 2 s heal loop forever.
 Actions (all via `run()`): `create_null_sink(name, description, channel_map)`,
 `set_sink_mute(name, on)`, `link(out_port, in_port)` (idempotent — `pw-link` ignores dup/missing
 ports), `unload_null_sink(name)` (finds the owning module via `pactl list modules` and unloads
@@ -71,8 +78,9 @@ the teardown uses — only a sink whose name is in it gets unloaded when it leav
 
 ## Orchestration (`main.py`)
 
-`reconcile_once(cfg)` runs one full pass: `our = cable names` → `snapshot` → resolve
-`physical_auto` → load the `initialized` ledger → `desired_state` → `reconcile` → `apply` →
+`reconcile_once(cfg)` runs one full pass: `our = cable names` → `snapshot` → **bail if
+`snap["ok"]` is false** (a blind read; skip rather than re-create — see `pwgraph.py` above) →
+resolve `physical_auto` → load the `initialized` ledger → `desired_state` → `reconcile` → `apply` →
 `state.mark(all cable names)`; returns `{"cables", "created"}`. `mark` records **every** cable
 that should exist (not just new ones), so a later recreation won't re-unmute. `main` also holds
 `VERSION` (stamped at build) and the CLI: `--selftest` (offline reconcile self-check, touches no

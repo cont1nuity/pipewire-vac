@@ -2,8 +2,13 @@
 import subprocess
 
 def run(cmd):
-    """Single chokepoint for every PipeWire CLI call. Tests monkeypatch this."""
-    return subprocess.run(cmd, capture_output=True, text=True)
+    """Single chokepoint for every PipeWire CLI call. Tests monkeypatch this.
+    timeout: a wedged pactl/pw-link must NOT freeze the 2s heal loop forever — on timeout we
+    return rc=124 so callers treat it as a failed read (snapshot below refuses to create on it)."""
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(cmd, 124, "", "timeout")
 
 def _names(stdout):
     out = set()
@@ -120,7 +125,11 @@ def source_ports(names):
     return res
 
 def snapshot(our_names):
-    return {"sinks": list_sinks()}
+    # "ok" lets the reconciler distinguish "pactl answered with these sinks" from "pactl didn't
+    # answer" (wedged/timed out -> rc!=0). Creating cables on a blind read is how we leaked
+    # duplicate null-sinks: an empty/failed listing made every cable look missing -> re-load.
+    r = run(["pactl", "list", "short", "sinks"])
+    return {"sinks": _names(r.stdout), "ok": r.returncode == 0}
 
 # --- actions (all route through run()) ---
 def create_null_sink(name, description, channel_map):

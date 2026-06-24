@@ -29,6 +29,8 @@ def reconcile_once(cfg):
     each to its target, unmutes each once (ledger-tracked). Never touches volume/default/mic."""
     our = _our_names(cfg)
     snap = pwgraph.snapshot(our)
+    if not snap.get("ok", True):     # pactl didn't answer (wedged/timed out) — a blind read makes
+        return {"cables": 0, "created": 0, "removed": 0}   # every cable look missing; don't re-create
     physical_auto = pwgraph.first_physical_sink(snap["sinks"], our)
     initialized = state.load()
 

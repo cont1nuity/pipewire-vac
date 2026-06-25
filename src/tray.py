@@ -9,8 +9,9 @@ dbus_next — the daemon runs fine trayless.
 Menu: version (disabled), Settings… (row-based editor), Edit config file (raw), Start at
 login (checkbox), 'Check for updates automatically' + 'Check for updates…' (AppImage runs only
 — hands off to AppImageUpdate if present, else opens the Releases page), Quit (stops the
-daemon). Left click opens Settings. The icon is a themed name (audio-headphones) — no asset
-shipped.
+daemon). Left click opens Settings. The icon is the bundled pipewire-vac.png embedded as an SNI
+IconPixmap (decoded in-process, no Pillow); it falls back to the themed `audio-headphones` name
+only if that PNG is missing/undecodable.
 
 Usage (by daemon.py): tray.py --pid <daemon-pid> --config <path> --version <v>
 """
@@ -35,7 +36,7 @@ RELEASES_URL = "https://github.com/cont1nuity/pipewire-vac/releases/latest"
 ITEM_PATH = "/StatusNotifierItem"
 MENU_PATH = "/MenuBar"
 WATCHER = "org.kde.StatusNotifierWatcher"
-ICON_NAME = "audio-headphones"          # default; main() upgrades to our installed icon
+ICON_NAME = "audio-headphones"          # fallback themed name when the bundled PNG won't decode
 VERSION = "dev"                          # set from --version (passed by the daemon)
 
 # menu item ids

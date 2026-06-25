@@ -25,7 +25,8 @@ changes, revise its doc as a full revision in the same commit.
 **What's built (all phases) — per-component detail in `docs/components/`:**
 
 - **Routing engine** — TOML-driven, surgical (create-if-missing) cable reconcile; the daemon
-  polls `reconcile_once` every 2s so a torn-down cable heals within ~2s. Structure-only: create /
+  triggers `reconcile_once` off a persistent `pactl subscribe` (sink/source/stream events), with a
+  60s safety-poll backstop, so a torn-down cable heals near-instantly. Structure-only: create /
   link (shared channels only, no downmix) / unmute-once; never volume, default, or mic. The one
   teardown is unloading a null-sink it created once that cable leaves the config (ledger-tracked);
   it never removes links or sinks it didn't make. → [`routing-engine.md`](docs/components/routing-engine.md),
@@ -40,8 +41,8 @@ changes, revise its doc as a full revision in the same commit.
   (AppImage + `.zsync`) and the AppImage auto-updates in place from the tray. →
   [`packaging.md`](docs/components/packaging.md).
 
-`qpwgraph` and a `daemonctl.py` restart layer were **dropped** — the daemon re-reads config
-every poll, so no restart is needed.
+`qpwgraph` and a `daemonctl.py` restart layer were **dropped** — the daemon re-reads config on
+every reconcile, so no restart is needed.
 
 **Deployment (current):** the **AppImage** is the live system, launched at login by an XDG
 autostart entry (`~/.config/autostart/pipewire-vac.desktop`, created via the tray's "Start at
@@ -50,12 +51,20 @@ cables and spawns the tray. **No systemd service of our own** — the autostart 
 the AppImage daemon directly. (An orphaned copy of the retired bash script sits at
 `~/.config/pipewire/virtual-cables.sh`, run by nothing.)
 
-**Why polling, not events:** an event-driven (`pw-dump --monitor`) build was written and
-hardware-tested first; it needed a thread + a fixed-window debounce *just* to avoid a
-reconcile storm (live audio keeps the graph chattering, so a "wait for a quiet gap"
-debounce starves). All that machinery bought ~200ms heal vs ~2s. Not worth it — the poll
-loop is half the code. Upgrade path (`pw-dump --monitor`) is noted in `daemon.py` if
-sub-second heal is ever needed.
+**Why event-driven now (and the poll history):** the daemon *was* a fixed 2s subprocess poll,
+chosen for simplicity over an earlier `pw-dump --monitor` build (which needed a thread + debounce
+*just* to survive the graph chatter — live audio churns PipeWire Nodes/Links constantly, so a
+"wait for a quiet gap" debounce starves). What forced the change: **WirePlumber 0.5.x leaks a
+GWeakRef per short-lived client connect**, and the 2s poll spawned `pactl`/`pw-link` clients every
+tick — sustained churn exhausts GLib's ceiling in ~8h and **wedges the whole audio session**
+(see `WIREPLUMBER-LEAK-HANDOFF.md`). The fix is to stop per-tick subprocess spawns: the daemon now
+triggers reconcile off **one persistent `pactl subscribe`**, reacting only to sink/source
+new+remove and new sink-inputs (`daemon._interesting`) and ignoring the client/source-output churn
+— which is both the leak source *and* the chatter the old `pw-dump --monitor` attempt drowned in
+(that low-level Node/Link churn never reaches the Pulse abstraction). Steady state spawns **zero**
+short-lived clients; a 60s `SAFETY_POLL` backstops missed events. So we ended up event-driven after
+all — not for the ~200ms heal latency the first attempt chased, but because per-tick polling was
+feeding a system-wedging leak.
 
 ## Routing topology
 

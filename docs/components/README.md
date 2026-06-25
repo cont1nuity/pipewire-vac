@@ -39,9 +39,10 @@ rules: match sinks by **name**, never module ID (IDs change every boot); always 
 
 `main.reconcile_once(cfg)` is one structural pass: snapshot the live graph → compute the
 desired sinks+links → diff into actions → apply → record the unmute ledger. It is **idempotent**
-— re-running it is the self-heal. The daemon ([daemon.md](daemon.md)) just calls it every 2s,
-then calls `apps.route_once` for app assignment. The reconcile is pure (no PipeWire calls in
-`routing.py`); only `pwgraph` and `state` have side effects.
+— re-running it is the self-heal. The daemon ([daemon.md](daemon.md)) calls it on a
+`pactl subscribe` event (or a 60s safety-poll backstop), then calls `apps.route_once` for app
+assignment. The reconcile is pure (no PipeWire calls in `routing.py`); only `pwgraph` and `state`
+have side effects.
 
 ## Maintaining these docs
 

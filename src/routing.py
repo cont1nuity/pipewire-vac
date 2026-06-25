@@ -78,8 +78,11 @@ def reconcile(desired, snap, initialized):
             actions.append(("create_sink", s["name"], s["channel_map"]))
             if s["name"] not in initialized:           # set-once: unmute only on first-ever create
                 actions.append(("unmute", s["name"]))
-    for out, inp in desired["links"]:
-        actions.append(("link", out, inp))             # fire-and-forget; pw-link ignores dup/missing
+    existing = snap.get("links", set())
+    links_known = snap.get("links_ok", True)           # read failed / older snap -> treat unknown
+    for out, inp in desired["links"]:                  #   as missing (fall back to fire-every-poll)
+        if not links_known or (out, inp) not in existing:
+            actions.append(("link", out, inp))         # create-if-missing; skip a link already wired
     for name in sorted((snap["sinks"] & initialized) - desired_names):
         actions.append(("unload", name))               # ours + present + removed from config
     return actions

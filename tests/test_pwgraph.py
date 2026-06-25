@@ -81,6 +81,29 @@ def test_list_sink_inputs_fills_anonymous_from_client(monkeypatch):
     assert items[200]["binary"] == "spotify"
     assert items[200]["media"] == "audio-src"
 
+def test_links_parses_both_arrows_and_spaced_names():
+    out = ("Game:monitor_FL\n"
+           "  |-> Master:playback_FL\n"
+           "Voice:playback_FL\n"
+           "  |<- WEBRTC VoiceEngine:output_FL\n"      # port name with a space, |<- direction
+           "Master:playback_FL\n"
+           "  |<- Game:monitor_FL\n")                   # same link from the input end -> deduped
+    links = pwgraph._links(out)
+    assert ("Game:monitor_FL", "Master:playback_FL") in links
+    assert ("WEBRTC VoiceEngine:output_FL", "Voice:playback_FL") in links
+    assert len(links) == 2                              # the duplicate collapses in the set
+
+def test_snapshot_reports_links_and_ok(monkeypatch):
+    def run(cmd):
+        if "pw-link" in cmd:
+            return types.SimpleNamespace(stdout="Game:monitor_FL\n  |-> Master:playback_FL\n",
+                                         stderr="", returncode=0)
+        return types.SimpleNamespace(stdout="0\tGame\tPipeWire\t-\tIDLE\n", stderr="", returncode=0)
+    monkeypatch.setattr(pwgraph, "run", run)
+    snap = pwgraph.snapshot({"Game"})
+    assert snap["links_ok"] is True
+    assert ("Game:monitor_FL", "Master:playback_FL") in snap["links"]
+
 def test_move_sink_input_calls_pactl(monkeypatch):
     calls = []
     monkeypatch.setattr(pwgraph, "run", lambda cmd: calls.append(cmd))

@@ -124,12 +124,35 @@ def source_ports(names):
                 res[n].append(port[len(pre):])
     return res
 
+def _links(stdout):
+    """Existing graph links as a set of (output_port, input_port), parsed from one `pw-link -l`.
+    A top-level line is a port; an indented `|-> X` is current(output)->X(input), `|<- Y` is
+    Y(output)->current(input). Port names may contain spaces, so we keep everything after the
+    arrow. Either arrow alone would catch every link; parsing both just dedupes into the set."""
+    links, cur = set(), None
+    for raw in stdout.splitlines():
+        if not raw.strip():
+            continue
+        if not raw.startswith(" "):
+            cur = raw.strip()
+        elif cur is not None:
+            s = raw.strip()
+            if   s.startswith("|-> "): links.add((cur, s[4:]))
+            elif s.startswith("|<- "): links.add((s[4:], cur))
+    return links
+
 def snapshot(our_names):
     # "ok" lets the reconciler distinguish "pactl answered with these sinks" from "pactl didn't
     # answer" (wedged/timed out -> rc!=0). Creating cables on a blind read is how we leaked
     # duplicate null-sinks: an empty/failed listing made every cable look missing -> re-load.
+    # "links"/"links_ok": one pw-link -l read so reconcile fires pw-link ONLY for missing links
+    # instead of every link every poll — that blind re-fire was ~N short-lived PipeWire clients
+    # per poll (a wireplumber GWeakRef-leak driver). links_ok=False (read failed) falls back to
+    # fire-all, same as before, since we then can't tell what's wired.
     r = run(["pactl", "list", "short", "sinks"])
-    return {"sinks": _names(r.stdout), "ok": r.returncode == 0}
+    lr = run(["pw-link", "-l"])
+    return {"sinks": _names(r.stdout), "ok": r.returncode == 0,
+            "links": _links(lr.stdout), "links_ok": lr.returncode == 0}
 
 # --- actions (all route through run()) ---
 def create_null_sink(name, description, channel_map):

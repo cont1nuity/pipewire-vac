@@ -95,6 +95,29 @@ def test_reconcile_existing_not_recreated():
     assert not any(a[0] == "create_sink" for a in acts)
     assert not any(a[0] == "unmute" for a in acts)
 
+def test_reconcile_skips_already_wired_links():
+    # the heal's whole point: don't re-fire pw-link for a link that already exists (that blind
+    # re-fire was ~N short-lived PipeWire clients per poll). Fire ONLY the missing one.
+    cfg = _cfg([{"name": "Game", "target": "Master"}, {"name": "Master", "target": "auto"}])
+    d = routing.desired_state(cfg, physical_auto="HW")
+    snap = {"sinks": {"Game", "Master"},
+            "links": {("Game:monitor_FL", "Master:playback_FL")},   # FR + Master->HW still missing
+            "links_ok": True}
+    acts = routing.reconcile(d, snap, initialized={"Game", "Master"})
+    fired = {(o, i) for k, o, i in acts if k == "link"}
+    assert ("Game:monitor_FL", "Master:playback_FL") not in fired   # already wired -> skipped
+    assert ("Game:monitor_FR", "Master:playback_FR") in fired       # missing -> fired
+    assert ("Master:monitor_FL", "HW:playback_FL") in fired
+
+def test_reconcile_fires_all_links_when_read_failed():
+    # pw-link -l wedged (links_ok=False): we can't tell what's wired, so fall back to fire-all.
+    cfg = _cfg([{"name": "Game", "target": "Master"}, {"name": "Master", "target": "auto"}])
+    d = routing.desired_state(cfg, physical_auto="HW")
+    snap = {"sinks": {"Game", "Master"}, "links": set(), "links_ok": False}
+    acts = routing.reconcile(d, snap, initialized={"Game", "Master"})
+    fired = {(o, i) for k, o, i in acts if k == "link"}
+    assert fired == set(d["links"])
+
 def test_apply_dispatches():
     calls = []
     class PW:

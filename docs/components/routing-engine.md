@@ -31,11 +31,17 @@ for a target / a `sources` entry; prefer `alsa_output.`/`alsa_input.` etc., excl
 `.monitor`), `snapshot(our)`, `source_ports(names)` (one `pw-link -o` → each capture source's
 live port suffixes, for virtual-mic links), and `sink_labels(our)` / `source_labels()` (friendly
 device descriptions for the settings UI dropdowns).
-`snapshot(our)` returns `{"sinks", "ok"}` — `ok` is false when the `pactl` sink listing failed
-(non-zero exit or timeout). That flag is load-bearing: an empty/failed listing makes every cable
-look missing, and creating on it re-loads a duplicate `module-null-sink` each poll — leaked
-modules that bloat the graph until the whole audio server wedges (the modules live in
-pipewire-pulse, so only a `systemctl restart` clears them). `run()` therefore wraps every call
+`snapshot(our)` returns `{"sinks", "ok", "links", "links_ok"}` — one `pactl list short sinks`
+plus one `pw-link -l`. `ok` is false when the `pactl` sink listing failed (non-zero exit or
+timeout). That flag is load-bearing: an empty/failed listing makes every cable look missing, and
+creating on it re-loads a duplicate `module-null-sink` each poll — leaked modules that bloat the
+graph until the whole audio server wedges (the modules live in pipewire-pulse, so only a
+`systemctl restart` clears them). `links` is the set of existing `(output_port, input_port)`
+tuples (`_links` parses the `|->`/`|<-` form); `links_ok` mirrors `ok` for the `pw-link -l` read.
+This snapshot is what lets `reconcile` fire `pw-link` **only for missing links** — without it the
+heal blindly re-issued every link every poll (~N short-lived PipeWire clients per poll, a
+wireplumber GWeakRef-leak driver). When `links_ok` is false (read failed) it falls back to the old
+fire-all behavior, since we then can't tell what is wired. `run()` therefore wraps every call
 with a **5 s timeout**, returning rc=124 on a hang so a wedged `pactl`/`pw-link` is treated as a
 failed read rather than freezing the 2 s heal loop forever.
 Actions (all via `run()`): `create_null_sink(name, description, channel_map)`,
@@ -60,8 +66,10 @@ name to its channel-map string; `SUFFIX` maps channels to PipeWire port suffixes
   `"auto"` with no mic) emits nothing and heals on a later poll. Source links are additive — never
   set the default source or mic gain (structure-only).
 - `reconcile(desired, snap, initialized)` → action list. Create a sink only if missing; emit
-  `("unmute", name)` only when the name is **not** in `initialized` (set-once); always emit the
-  links (fire-and-forget). It also emits `("unload", name)` for each cable in
+  `("unmute", name)` only when the name is **not** in `initialized` (set-once); emit a `link`
+  action **only for a link absent from `snap["links"]`** (create-if-missing — `pw-link` still
+  ignores a same-poll dup, but in steady state we issue no link writes at all). It also emits
+  `("unload", name)` for each cable in
   `(snap ∩ initialized) − desired` — a null-sink **we** created (present + ledger-tracked) that
   the user removed from config. Sinks we didn't make (not in `initialized`) are never touched.
 - `apply(actions, pw)` dispatches `create_sink` / `unmute` / `link` / `unload` to `pwgraph`.

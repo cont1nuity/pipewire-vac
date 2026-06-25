@@ -3,7 +3,7 @@
 #
 # Self-contained result: a relocatable CPython (python-appimage manylinux build) + dbus-next
 # (the tray) + the runtime payload (src/, config.example.toml). The target host needs NO
-# python install — only the PipeWire CLI tools (pactl, pw-link, pw-dump), which every
+# python install — only the PipeWire CLI tools (pactl, pw-link), which every
 # PipeWire system already ships.
 #
 # Deliberately minimal: NO USB/libusb, NO fonts, NO Tcl/Tk (we ship no Tkinter editor),

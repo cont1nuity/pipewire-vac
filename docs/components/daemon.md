@@ -41,7 +41,7 @@ daemon down (see [ui.md](ui.md)); it dies with the daemon via PDEATHSIG.
 
 `preflight(config_arg)` runs three bootstrap checks, each a silent success or a hard exit with an
 exact stderr message (systemd journals them — no GUI prompts): `_check_tools()` (require `pactl`,
-`pw-link`, `pw-dump`), `_wait_for_pipewire()` (poll `pactl info` with retries), and
+`pw-link`), `_wait_for_pipewire()` (poll `pactl info` with retries), and
 `_ensure_config()` (seed `$XDG_CONFIG/config.toml` from `config.example.toml` on first run —
 **never** overwrites an existing config). Returns the resolved config path.
 
@@ -49,7 +49,7 @@ exact stderr message (systemd journals them — no GUI prompts): `_check_tools()
 
 The single source of truth for filesystem locations (stdlib `os` only) so nothing else hardcodes
 a path. `PACKAGED` is true when the AppImage runtime set `APPDIR` **or** `ROOT` isn't writable
-(read-only squashfs); when packaged, `LOGS` moves to `XDG_STATE`. `config_path()` prefers a
-repo-local `config.toml` (dev) and falls back to `$XDG_CONFIG/config.toml` (packaged).
+(read-only squashfs). `config_path()` prefers a repo-local `config.toml` (dev) and falls back to
+`$XDG_CONFIG/config.toml` (packaged).
 
 See also: [routing-engine.md](routing-engine.md), [ui.md](ui.md), [app-routing.md](app-routing.md)

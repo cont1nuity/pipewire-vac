@@ -2,8 +2,6 @@
 import os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # src/ -> repo root
-SRC  = os.path.join(ROOT, "src")
-LOGS = os.path.join(ROOT, "logs")
 
 APP        = "pipewire-vac"
 XDG_CONFIG = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), APP)
@@ -11,8 +9,6 @@ XDG_STATE  = os.path.join(os.environ.get("XDG_STATE_HOME")  or os.path.expanduse
 
 # Packaged when the AppImage runtime set APPDIR, OR when the code dir is read-only (squashfs mount).
 PACKAGED = bool(os.environ.get("APPDIR")) or not os.access(ROOT, os.W_OK)
-if PACKAGED:
-    LOGS = XDG_STATE
 
 def config_path():
     """Live config: repo-local config.toml if present (dev), else the XDG home (packaged)."""

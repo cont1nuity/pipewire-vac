@@ -44,7 +44,7 @@ sink to build whatever bus layout you want.
 
 ## Requirements
 
-- A running **PipeWire** stack with its CLI tools: `pactl`, `pw-link`, `pw-dump` (and `wpctl`).
+- A running **PipeWire** stack with its CLI tools `pactl` and `pw-link`.
 - **Python 3.11+** (for stdlib `tomllib`) when running from source.
 - **`dbus-next`** — the only third-party Python dependency, and only for the tray.
 

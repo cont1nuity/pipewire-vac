@@ -3,7 +3,7 @@
 import os, sys, shutil
 import paths
 
-REQUIRED_TOOLS = ["pactl", "pw-link", "pw-dump"]
+REQUIRED_TOOLS = ["pactl", "pw-link"]
 
 def _check_tools():
     missing = [t for t in REQUIRED_TOOLS if shutil.which(t) is None]

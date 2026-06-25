@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] - 2026-06-25
+
+### Fixed
+- **The daemon no longer feeds a WirePlumber resource leak.** The 2 s poll re-asserted every cable
+  link with `pw-link` and re-listed sinks/streams with `pactl` on *every* tick — dozens of
+  short-lived PipeWire clients per second, all day. WirePlumber 0.5.x leaks a GWeakRef per
+  short-lived client connection, so the churn slowly exhausted GLib's weak-ref ceiling (~8 h) and
+  wedged the whole audio session until WirePlumber was restarted. Two changes stop the churn at the
+  source:
+  - The reconciler reads existing links once (`pw-link -l`) and creates only the links actually
+    missing, instead of firing `pw-link` for every link on every poll.
+  - The daemon is now **event-driven**: it reconciles on real PulseAudio events from one persistent
+    `pactl subscribe` (a sink/source appearing or disappearing, a new stream to auto-route) and
+    ignores the client/volume churn, with a 60 s safety-poll backstop. In steady state it spawns
+    **zero** short-lived clients, and a torn-down cable now heals near-instantly instead of within
+    ~2 s.
+
 ## [1.0.1] - 2026-06-24
 
 ### Fixed

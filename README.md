@@ -55,8 +55,8 @@ The AppImage bundles Python and `dbus-next`, so it needs none of the above excep
 **From source:**
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp config.example.toml config.toml      # edit cable targets to taste
+./setup.sh                              # venv + dbus-next, seeds config.toml from the example
+# edit config.toml — cable targets, app rules
 ./start.sh                              # reconcile the live graph once (idempotent), then exit
 ./start.sh --daemon                     # stay running and self-heal
 ```

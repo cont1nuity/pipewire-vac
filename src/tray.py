@@ -8,7 +8,8 @@ dbus_next — the daemon runs fine trayless.
 
 Menu: version (disabled), Settings… (row-based editor), Edit config file (raw), Start at
 login (checkbox), 'Check for updates automatically' + 'Check for updates…' (AppImage runs only
-— hands off to AppImageUpdate if present, else opens the Releases page), Quit (stops the
+— hands off to AppImageUpdate if present, else self-updates in place by downloading + swapping the
+AppImage, falling back to the Releases page), Quit (stops the
 daemon). Left click opens Settings. The icon is the bundled pipewire-vac.png embedded as an SNI
 IconPixmap (decoded in-process, no Pillow); it falls back to the themed `audio-headphones` name
 only if that PNG is missing/undecodable.
@@ -16,6 +17,7 @@ only if that PNG is missing/undecodable.
 Usage (by daemon.py): tray.py --pid <daemon-pid> --config <path> --version <v>
 """
 import asyncio
+import json
 import os
 import re
 import shutil
@@ -23,6 +25,7 @@ import signal
 import struct
 import subprocess
 import sys
+import threading
 import urllib.request
 import zlib
 
@@ -33,6 +36,7 @@ from paths import ROOT, XDG_STATE
 APP_ID = paths.APP                       # internal id (config dir / lock / SNI) = "pipewire-vac"
 APP_NAME = "PipeWire VAC"
 RELEASES_URL = "https://github.com/cont1nuity/pipewire-vac/releases/latest"
+GH_API_LATEST = "https://api.github.com/repos/cont1nuity/pipewire-vac/releases/latest"
 ITEM_PATH = "/StatusNotifierItem"
 MENU_PATH = "/MenuBar"
 WATCHER = "org.kde.StatusNotifierWatcher"
@@ -330,6 +334,35 @@ def latest_release_version():
     return m.group(1) if m else None
 
 
+def download_latest_appimage(appimage_path, api_url=GH_API_LATEST):
+    """Pure-Python in-place self-update (no AppImageUpdate needed). Resolve the latest release's
+    *.AppImage asset via the GitHub API, stream it to <appimage>.new beside the original, then
+    os.replace() it into place — an atomic rename on the same filesystem; the running, FUSE-mounted
+    image keeps executing off its old inode, so the swap is safe and the new version applies on next
+    launch. Inherits the AppImage's SSL_CERT_FILE for TLS, exactly like latest_release_version().
+    Returns the release tag on success; raises on any failure so the caller can fall back."""
+    req = urllib.request.Request(api_url, headers={"User-Agent": APP_ID})
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        rel = json.load(resp)
+    # ponytail: single-arch release today, so pick the one .AppImage asset (the sibling is .zsync);
+    # add arch matching here if multi-arch builds ever ship.
+    asset = next(a for a in rel["assets"] if a["name"].endswith(".AppImage"))
+    tmp = appimage_path + ".new"
+    dl = urllib.request.Request(asset["browser_download_url"], headers={"User-Agent": APP_ID})
+    try:
+        with urllib.request.urlopen(dl, timeout=180) as resp, open(tmp, "wb") as fh:
+            shutil.copyfileobj(resp, fh)
+        os.chmod(tmp, 0o755)
+        os.replace(tmp, appimage_path)
+    except BaseException:
+        try:
+            os.unlink(tmp)               # never leave a half-written .new behind
+        except OSError:
+            pass
+        raise
+    return rel.get("tag_name") or "the latest version"
+
+
 def notify(summary, body):
     """Desktop notification via libnotify if present; skipped silently otherwise (the tray menu
     still shows the update either way)."""
@@ -472,14 +505,41 @@ class Menu(ServiceInterface):
         self.LayoutUpdated()
 
     def _check_updates(self):
-        """AppImage only: hand off to AppImageUpdate for an in-place delta update if the tool is
-        installed, else open the Releases page. The AppImage carries embedded update-information
-        (baked by packaging/build-appimage.sh), so the updater needs only the AppImage path."""
+        """In-place update, AppImage only. If appimageupdatetool/AppImageUpdate is installed, hand
+        off to it for a zsync delta update (it reads the embedded update-info baked by
+        build-appimage.sh). Otherwise self-update in pure Python — download the latest *.AppImage and
+        atomically swap $APPIMAGE (download_latest_appimage), off the dbus loop in a worker thread.
+        Any failure, or no known newer version, falls back to opening the Releases page so the click
+        is never silently dead. The new version applies on next launch; we don't auto-restart (the
+        daemon spawned us, so re-exec would collide with the running daemon)."""
         appimage = os.environ.get("APPIMAGE")
         tool = shutil.which("appimageupdatetool") or shutil.which("AppImageUpdate")
-        target = [tool, appimage] if (appimage and tool) else ["xdg-open", RELEASES_URL]
+        if appimage and tool:
+            try:
+                subprocess.Popen([tool, appimage], start_new_session=True,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                self._open_releases()
+        elif appimage and self.update_available:
+            threading.Thread(target=self._run_self_update, args=(appimage,), daemon=True).start()
+        else:
+            self._open_releases()
+
+    def _run_self_update(self, appimage):
+        """Worker-thread body for the pure-Python self-update: download + swap, then notify. On any
+        failure, notify and open the Releases page so the user can still grab it manually."""
+        notify(APP_NAME, "Downloading update %s…" % (self.update_available or ""))
         try:
-            subprocess.Popen(target, start_new_session=True,
+            ver = download_latest_appimage(appimage)
+            notify(APP_NAME, "Updated to %s — restart PipeWire VAC to apply." % ver)
+        except Exception as e:
+            print("self-update failed: %r" % e, file=sys.stderr, flush=True)
+            notify(APP_NAME, "Update failed — opening the Releases page.")
+            self._open_releases()
+
+    def _open_releases(self):
+        try:
+            subprocess.Popen(["xdg-open", RELEASES_URL], start_new_session=True,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
             pass

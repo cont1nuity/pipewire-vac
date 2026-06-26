@@ -62,6 +62,13 @@ python-appimage bundle (the editor falls back to raw-TOML editing if absent). Bu
 `$DIST` so both land together). A tagged push (`v*`) runs `.github/workflows/release.yml`: it builds
 on `ubuntu-22.04`, composes release notes from the matching `CHANGELOG.md` section
 (`packaging/changelog-section.sh`), and creates/updates the GitHub release with the AppImage +
-`.zsync`. The tray then delta-updates in place via AppImageUpdate (see [ui.md](ui.md)).
+`.zsync`. The tray then updates in place (see [ui.md](ui.md)): via AppImageUpdate's zsync delta if
+that tool is installed, else by a pure-Python full-asset download + atomic swap. The embedded
+update-info and `.zsync` are only used by the AppImageUpdate path — the pure-Python fallback ignores
+them and just pulls the whole `*.AppImage` from the release. We deliberately **don't bundle**
+appimageupdatetool: its self-contained build is ~35 MB (dynamically linked against a large
+libappimageupdate/icu/rsvg/zsync closure), which would ~triple the deliverable to buy zsync deltas
+the pure-Python path doesn't need — the safety-critical step (atomic rename of the running image) is
+identical either way.
 
 See also: [ui.md](ui.md), [daemon.md](daemon.md)

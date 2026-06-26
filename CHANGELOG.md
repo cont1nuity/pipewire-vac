@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.4] - 2026-06-27
+
+### Fixed
+- **"Update available — install now" now actually updates in place.** Clicking it only performed an
+  in-place update when `appimageupdatetool`/`AppImageUpdate` happened to be installed; without that
+  tool it silently fell back to opening the Releases page (frequently an unnoticed background browser
+  tab), so the advertised tray auto-update never happened for most users. The tray now self-updates
+  in pure Python when the tool is absent: `download_latest_appimage` resolves the latest release's
+  `*.AppImage` asset via the GitHub API, downloads it off the dbus loop in a worker thread, and
+  atomically `os.replace`s it over `$APPIMAGE` (reusing the bundled certifi/`SSL_CERT_FILE` TLS path
+  from 1.0.3). The AppImageUpdate hand-off is kept for anyone who has the tool (zsync delta), and any
+  failure or no-newer-version still falls back to the Releases page. The new version applies on next
+  launch; there is no auto-restart (the daemon spawns the tray, so re-exec would collide with it).
+  `appimageupdatetool` is deliberately **not** bundled — its self-contained build is ~35 MB and would
+  roughly triple the deliverable to buy a zsync delta the pure-Python path doesn't need; the
+  safety-critical step (atomic rename of the running image) is identical either way.
+
 ## [1.0.3] - 2026-06-26
 
 ### Fixed

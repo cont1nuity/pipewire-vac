@@ -1,4 +1,7 @@
 # tests/test_tray.py — pure (no dbus/network/Tk) helpers behind the AppImage update check.
+import io
+import json
+
 import tray
 
 
@@ -40,3 +43,50 @@ def test_read_defaults_true(tmp_path):
     p.write_text("config_version = 2\n")           # no [features] -> default on
     assert tray.read_check_updates(str(p)) is True
     assert tray.read_check_updates("") is True      # no path -> default on
+
+
+class _Resp(io.BytesIO):                            # minimal urlopen() context-manager stand-in
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        self.close()
+        return False
+
+
+def test_self_update_swaps_appimage_atomically(tmp_path, monkeypatch):
+    app = tmp_path / "PipeWire-VAC-1.0.2-x86_64.AppImage"
+    app.write_bytes(b"OLD")
+    api = {"tag_name": "v1.0.3", "assets": [
+        {"name": "PipeWire-VAC-1.0.3-x86_64.AppImage.zsync", "browser_download_url": "z"},
+        {"name": "PipeWire-VAC-1.0.3-x86_64.AppImage", "browser_download_url": "http://x/app"}]}
+
+    def fake_urlopen(req, timeout=None):
+        return _Resp(json.dumps(api).encode() if req.full_url.startswith("http") and "/app" not in req.full_url
+                     else b"NEW")
+    monkeypatch.setattr(tray.urllib.request, "urlopen", fake_urlopen)
+
+    ver = tray.download_latest_appimage(str(app), api_url="http://api/latest")
+    assert ver == "v1.0.3"
+    assert app.read_bytes() == b"NEW"               # swapped in place...
+    assert app.stat().st_mode & 0o111               # ...and executable
+    assert not (tmp_path / (app.name + ".new")).exists()   # no leftover temp
+
+
+def test_self_update_leaves_no_temp_on_download_failure(tmp_path, monkeypatch):
+    app = tmp_path / "app.AppImage"
+    app.write_bytes(b"OLD")
+    api = {"tag_name": "v9", "assets": [
+        {"name": "app.AppImage", "browser_download_url": "http://x/app"}]}
+
+    def fake_urlopen(req, timeout=None):
+        if "/app" in req.full_url:
+            raise OSError("network down")           # asset download fails
+        return _Resp(json.dumps(api).encode())
+    monkeypatch.setattr(tray.urllib.request, "urlopen", fake_urlopen)
+
+    import pytest
+    with pytest.raises(OSError):
+        tray.download_latest_appimage(str(app), api_url="http://api/latest")
+    assert app.read_bytes() == b"OLD"               # original untouched
+    assert not (tmp_path / (app.name + ".new")).exists()   # half-written temp cleaned up

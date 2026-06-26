@@ -23,10 +23,16 @@ daemon.
 startup — honoring `[features] check_updates` (toggled by the "automatically" checkbox; the tray
 rewrites that one config line Tk-free) — the tray HEAD-requests the GitHub `releases/latest`
 redirect, and if the tag parses newer than the running `--version` it relabels the item to
-*"Update available: X — install now"* and fires a libnotify notification. Clicking it hands off to
-`appimageupdatetool`/`AppImageUpdate` for an in-place delta update (the AppImage carries embedded
-update-information, see [packaging.md](packaging.md)), or opens the Releases page if that tool
-isn't installed. All best-effort: network/SSL failures and a missing notifier just no-op.
+*"Update available: X — install now"* and fires a libnotify notification. Clicking it updates in
+place: if `appimageupdatetool`/`AppImageUpdate` is installed it hands off to that for a zsync delta
+update (the AppImage carries embedded update-information, see [packaging.md](packaging.md));
+otherwise it self-updates in pure Python — `download_latest_appimage` resolves the latest release's
+`*.AppImage` asset via the GitHub API, streams it to `<appimage>.new`, and atomically `os.replace`s
+it over `$APPIMAGE` (download runs in a worker thread, off the dbus loop). The new version applies
+on next launch — there is no auto-restart, because the daemon spawned the tray, so re-exec would
+collide with the running daemon. Any failure, or no known newer version, falls back to opening the
+Releases page, so the click is never silently dead. All best-effort: network/SSL failures and a
+missing notifier just no-op.
 
 **Icon:** the custom audio-routing graphic `packaging/pipewire-vac.png` is embedded as an
 `IconPixmap` — `_png_to_argb` decodes the PNG to ARGB with a tiny stdlib decoder (no Pillow, all

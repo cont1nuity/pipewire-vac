@@ -55,6 +55,7 @@ echo ">> bundled interpreter: $("$PY" --version)"
 # 3) python deps into the bundle (manylinux wheel — self-contained)
 "$PY" -m pip install --quiet --upgrade pip
 "$PY" -m pip install --quiet dbus-next       # the tray (StatusNotifierItem)
+"$PY" -m pip install --quiet certifi         # bundled CA roots (Mozilla store) for the HTTPS update check
 "$PY" -c "import tkinter" 2>/dev/null \
     && echo ">> tkinter import OK in bundle (settings editor enabled)" \
     || echo ">> WARNING: tkinter not importable — settings UI will fall back to raw editing"
@@ -90,11 +91,23 @@ if [ -n "$_initcl" ] && [ -n "$_tktcl" ]; then
 else
     echo ">> NOTE: no Tcl/Tk in bundle — settings UI will fall back to raw editing"
 fi
+# Bundled CA roots (certifi): locate cacert.pem relative to APPDIR so AppRun points the
+# interpreter's OpenSSL at the in-mount file — self-contained, no host-path assumptions.
+CACERT=$(find "$APPDIR" -path '*/certifi/cacert.pem' -type f 2>/dev/null | awk 'NR==1' || true)
+[ -n "$CACERT" ] || { echo "ERROR: bundled certifi cacert.pem not found (pip install certifi failed?)"; exit 1; }
+CACERT_REL="${CACERT#"$APPDIR"/}"
+echo ">> bundled CA roots: $CACERT_REL"
 rm -f "$APPDIR/AppRun"
 cat > "$APPDIR/AppRun" <<EOF
 #!/bin/bash
 HERE="\$(dirname "\$(readlink -f "\$0")")"
 export APPDIR="\${APPDIR:-\$HERE}"
+# TLS CA bundle: the bundled manylinux CPython's OpenSSL hunts for certs at its build-time
+# path (/opt/_internal/...), absent on the target, so the tray's HTTPS update check fails
+# CERTIFICATE_VERIFY_FAILED and the update notice never fires. Point it at the CA roots we
+# bundle (certifi) so the AppImage is self-contained on any distro; an env override still wins
+# (e.g. a corporate TLS-inspecting proxy whose root isn't in the Mozilla store).
+export SSL_CERT_FILE="\${SSL_CERT_FILE:-\$APPDIR/$CACERT_REL}"
 $TCL_EXPORTS
 exec "\$HERE/$PYREL" "\$HERE/opt/pipewire-vac/src/main.py" --daemon "\$@"
 EOF

@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.3] - 2026-06-26
+
+### Fixed
+- **Automatic update checks now work.** The bundled CPython (python-appimage manylinux build) ships
+  no CA-certificate store, and its OpenSSL hunts for one at a build-time path (`/opt/_internal/…`)
+  that is absent on the target — so the tray's HTTPS update check (`latest_release_version`, a
+  `urllib` HEAD to GitHub) failed `CERTIFICATE_VERIFY_FAILED` on every poll, *silently*, and no
+  update notification ever appeared. The build now bundles `certifi` (the Mozilla CA roots) into the
+  interpreter and AppRun exports `SSL_CERT_FILE` pointing at the in-mount `cacert.pem`, so the check
+  verifies and the tray surfaces new releases. `zsync2`/AppImageUpdate brings its own CA discovery,
+  so the *manual* "Check for updates…" click already worked — only the automatic check was broken.
+  An existing `SSL_CERT_FILE` still wins (corporate TLS-inspecting proxies whose root isn't in the
+  Mozilla store).
+  - **Note:** AppImages built before this release carry the broken AppRun and can't be fixed in
+    place. Update to 1.0.3 once via the tray's "Check for updates…" (or a manual download);
+    automatic checks work from 1.0.3 onward.
+
 ## [1.0.2] - 2026-06-25
 
 ### Fixed

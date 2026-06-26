@@ -12,7 +12,8 @@ tools it shells out to, plus the udev-free PipeWire stack). Output:
 1. **Fetch toolchain** — `python-appimage` (manylinux relocatable CPython) + `appimagetool`,
    cached under `build/cache/` so rebuilds run offline.
 2. **Extract** the Python AppImage to `AppDir/` (`--appimage-extract`, no FUSE).
-3. **`pip install dbus-next`** into the bundled interpreter (manylinux wheel → self-contained).
+3. **`pip install dbus-next` + `certifi`** into the bundled interpreter (manylinux wheel →
+   self-contained; certifi ships the CA roots the update check's HTTPS needs — see gotchas).
 4. **Copy payload** — `src/`, `config.example.toml`, `pipewire-vac.png` into
    `AppDir/opt/pipewire-vac/`; **sed-stamp `VERSION`** into the bundled `src/main.py`.
 5. **Write `AppRun`** (see gotchas).
@@ -37,6 +38,14 @@ Three things, each of which cost a debugging session:
   `~/.local/state` instead of the read-only mount.
 - **Re-export `TCL_LIBRARY` / `TK_LIBRARY`** (the files are already bundled) so the Tk config
   editor works; AppRun replaces python-appimage's, which set them. AppRun execs `main.py --daemon`.
+- **Export `SSL_CERT_FILE`** (→ the bundled `certifi/cacert.pem`, located relative to `APPDIR`) —
+  the bundled manylinux CPython's OpenSSL looks for certs at its build path (`/opt/_internal/…`),
+  absent on the target, so the tray's HTTPS update check (`latest_release_version`, a `urllib` HEAD
+  to GitHub) otherwise fails `CERTIFICATE_VERIFY_FAILED` every poll and the update notice never
+  fires. zsync2/AppImageUpdate brings its own CA discovery, so the *manual* "Check for updates…"
+  click still worked — only the *automatic* Python check was broken. We **bundle `certifi`** (step 3)
+  rather than probe the host store, so the AppImage stays self-contained on any distro; an existing
+  `SSL_CERT_FILE` still wins (corporate TLS-inspecting proxies whose root isn't in the Mozilla store).
 
 ## Deliberately minimal
 

@@ -91,11 +91,12 @@ if [ -n "$_initcl" ] && [ -n "$_tktcl" ]; then
 else
     echo ">> NOTE: no Tcl/Tk in bundle — settings UI will fall back to raw editing"
 fi
-# Bundled CA roots (certifi): locate cacert.pem relative to APPDIR so AppRun points the
-# interpreter's OpenSSL at the in-mount file — self-contained, no host-path assumptions.
-CACERT=$(find "$APPDIR" -path '*/certifi/cacert.pem' -type f 2>/dev/null | awk 'NR==1' || true)
-[ -n "$CACERT" ] || { echo "ERROR: bundled certifi cacert.pem not found (pip install certifi failed?)"; exit 1; }
-CACERT_REL="${CACERT#"$APPDIR"/}"
+# Bundled CA roots (certifi): ask the interpreter where its certifi cacert.pem is (relative to
+# APPDIR) so AppRun points OpenSSL at the in-mount file — self-contained, no host-path assumptions.
+# certifi.where() picks the standalone certifi deterministically — a `find` would also match pip's
+# vendored copy (pip/_vendor/certifi) and pick whichever the directory walk hit first.
+CACERT_REL=$("$PY" -c "import certifi, os; print(os.path.relpath(certifi.where(), '$APPDIR'))")
+[ -n "$CACERT_REL" ] && [ -f "$APPDIR/$CACERT_REL" ] || { echo "ERROR: bundled certifi not found (pip install certifi failed?)"; exit 1; }
 echo ">> bundled CA roots: $CACERT_REL"
 rm -f "$APPDIR/AppRun"
 cat > "$APPDIR/AppRun" <<EOF

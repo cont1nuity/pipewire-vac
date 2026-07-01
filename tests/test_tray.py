@@ -1,7 +1,9 @@
 # tests/test_tray.py — pure (no dbus/network/Tk) helpers behind the AppImage update check.
 import io
 import json
+import os
 
+import paths
 import tray
 
 
@@ -90,3 +92,51 @@ def test_self_update_leaves_no_temp_on_download_failure(tmp_path, monkeypatch):
         tray.download_latest_appimage(str(app), api_url="http://api/latest")
     assert app.read_bytes() == b"OLD"               # original untouched
     assert not (tmp_path / (app.name + ".new")).exists()   # half-written temp cleaned up
+
+
+# --- self-install: relocate a throwaway copy / adopt a deliberately-placed one + repoint autostart ---
+
+def _isolate(tmp_path, monkeypatch, dl, inst):
+    """Point the ephemeral set at one dir, INSTALL_APPIMAGE + autostart entry into tmp_path."""
+    monkeypatch.setattr(paths, "EPHEMERAL_DIRS", [str(dl)])
+    monkeypatch.setattr(paths, "INSTALL_APPIMAGE", str(inst))
+    monkeypatch.setattr(tray, "AUTOSTART_ENTRY", str(tmp_path / "autostart" / "pipewire-vac.desktop"))
+
+
+def test_maybe_self_install_relocates_and_repoints(tmp_path, monkeypatch):
+    dl = tmp_path / "Downloads"; dl.mkdir()
+    inst = tmp_path / "share" / "PipeWire-VAC.AppImage"
+    _isolate(tmp_path, monkeypatch, dl, inst)
+    thrown = dl / "PipeWire-VAC-v1.0.4-x86_64.AppImage"
+    thrown.write_bytes(b"#!/bin/sh\ntrue\n"); os.chmod(thrown, 0o755)
+    monkeypatch.setenv("APPIMAGE", str(thrown))
+    tray.autostart_enable()                          # login entry exists (points at the resolved target)
+    tray.maybe_self_install()                        # relocate the Downloads copy -> install dir
+    assert inst.exists(), "a throwaway copy must be relocated"
+    assert tray.launch_cmd() == str(inst)
+    assert str(inst) in open(tray.AUTOSTART_ENTRY).read()   # autostart repointed at the install path
+
+
+def test_maybe_self_install_adopts_in_place(tmp_path, monkeypatch):
+    dl = tmp_path / "Downloads"; dl.mkdir()
+    inst = tmp_path / "share" / "PipeWire-VAC.AppImage"
+    _isolate(tmp_path, monkeypatch, dl, inst)
+    placed = tmp_path / "Applications" / "PipeWire-VAC.AppImage"
+    placed.parent.mkdir(); placed.write_bytes(b"#!/bin/sh\ntrue\n"); os.chmod(placed, 0o755)
+    real = os.path.realpath(str(placed))
+    monkeypatch.setenv("APPIMAGE", str(placed))
+    tray.autostart_enable()
+    tray.maybe_self_install()                        # not ephemeral -> adopt in place, no copy
+    assert not inst.exists(), "a deliberately-placed AppImage is adopted, not duplicated"
+    assert tray.launch_cmd() == real
+    assert real in open(tray.AUTOSTART_ENTRY).read()
+
+
+def test_maybe_self_install_noop_without_appimage(tmp_path, monkeypatch):
+    dl = tmp_path / "Downloads"; dl.mkdir()
+    inst = tmp_path / "share" / "PipeWire-VAC.AppImage"
+    _isolate(tmp_path, monkeypatch, dl, inst)
+    monkeypatch.delenv("APPIMAGE", raising=False)    # dev/source run
+    tray.maybe_self_install()                        # no-op — nothing copied, no autostart written
+    assert not inst.exists()
+    assert not os.path.exists(tray.AUTOSTART_ENTRY)

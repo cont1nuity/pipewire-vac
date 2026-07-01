@@ -131,11 +131,10 @@ AUTOSTART_ENTRY = os.path.join(
 
 
 def launch_cmd():
-    """What a login should start: the AppImage running us ($APPIMAGE) or the repo start.sh."""
-    appimage = os.environ.get("APPIMAGE")
-    if appimage:
-        return appimage
-    return os.path.join(ROOT, "start.sh") + " --daemon"
+    """What a login (autostart) should start: the resolved persistent install target — our private
+    INSTALL_APPIMAGE when running from a throwaway copy, the adopted $APPIMAGE when it's in a real
+    home, else the repo start.sh --daemon (dev). See paths.install_target / maybe_self_install."""
+    return paths.install_target()
 
 
 def autostart_enabled():
@@ -159,6 +158,37 @@ def autostart_disable():
         pass
 
 
+def maybe_self_install():
+    """Make the running AppImage persist. From a throwaway dir (a fresh download in ~/Downloads) we
+    copy it into INSTALL_APPIMAGE so the original can be deleted; from a real home (a tool installed
+    it, or the user placed it) we leave it there and make no copy. Either way, if autostart is on we
+    repoint it at the resolved persistent target. No-op on a dev/source run ($APPIMAGE unset).
+    ponytail: re-copies (~40MB) each launch from a throwaway path; the normal login launches the
+    installed copy (or a tool's), which skips the copy — so this only fires on a deliberate
+    re-download that the user then runs."""
+    src = os.environ.get("APPIMAGE")
+    if not src:
+        return
+    src = os.path.realpath(src)
+    if paths._is_ephemeral(src) and src != os.path.realpath(paths.INSTALL_APPIMAGE):
+        try:
+            os.makedirs(os.path.dirname(paths.INSTALL_APPIMAGE), exist_ok=True)
+            tmp = paths.INSTALL_APPIMAGE + ".new"
+            shutil.copy2(src, tmp)                  # preserves the executable bit
+            os.chmod(tmp, 0o755)
+            os.replace(tmp, paths.INSTALL_APPIMAGE) # atomic; a running old copy keeps its inode
+        except OSError as e:
+            print("self-install failed: %r" % e, file=sys.stderr, flush=True)
+            return
+    if autostart_enabled():
+        try:
+            cur = open(AUTOSTART_ENTRY).read()
+        except OSError:
+            cur = ""
+        if launch_cmd() not in cur:                 # only rewrite when the target actually moved
+            autostart_enable()                      # (re)point Exec= at install_target()
+
+
 # ----------------------------------------------------------- D-Bus service objects
 
 try:
@@ -167,8 +197,10 @@ try:
     from dbus_next.service import (ServiceInterface, method,       # noqa: E402
                                    dbus_property, signal as dbus_signal)
 except ImportError as _e:                     # tray is optional — daemon runs without it
-    print("tray unavailable: %s (pip/pacman: dbus-next)" % _e, file=sys.stderr)
-    sys.exit(0)
+    if __name__ == "__main__":                # run as a process -> exit cleanly (daemon runs trayless)
+        print("tray unavailable: %s (pip/pacman: dbus-next)" % _e, file=sys.stderr)
+        sys.exit(0)
+    raise                                     # imported for its helpers -> let the caller catch it
 
 
 class Sni(ServiceInterface):

@@ -89,6 +89,11 @@ def _load_or_keep(cfgpath, last):
 def run_daemon(config_arg=None):
     cfgpath = firstrun.preflight(config_arg)
     lock = single_instance()          # noqa: F841 — held for process lifetime
+    try:                              # persist a throwaway AppImage copy + repoint autostart (AppImage runs)
+        from tray import maybe_self_install    # importing tray needs dbus_next -> guard (daemon runs trayless)
+        maybe_self_install()
+    except Exception as e:
+        print(f"self-install skipped: {e!r}", file=sys.stderr)
     cfg = config.load(cfgpath)
 
     moved = {}                        # {sink-input index: target last applied} — move-once ledger
